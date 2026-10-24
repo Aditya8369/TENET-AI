@@ -95,6 +95,16 @@ describe('buildExportFilename', () => {
     ).toBe('tenet-events_2026-10-01_to_2026-10-02_malicious-blocked-prompt-injection.pdf');
   });
 
+  it('includes search, source IP, day and hour filters', () => {
+    expect(
+      buildExportFilename(
+        'csv',
+        { search: 'Prompt Inj', sourceIP: '10.0.0.1', dayOfWeek: '2', hourFrom: '9', hourTo: '17' },
+        [],
+      ),
+    ).toBe('tenet-events_10-0-0-1-search-prompt-inj-day2-hour9-17.csv');
+  });
+
   it('works with no rows and no filters', () => {
     expect(buildExportFilename('csv', {}, [])).toBe('tenet-events_all.csv');
   });

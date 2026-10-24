@@ -306,7 +306,7 @@ export default function App() {
     }));
     const filename = buildExportFilename(format, filters, rows);
     if (format === 'csv') downloadText(filename, toCsv(rows), 'text/csv');
-    else if (format === 'json') downloadText(filename, toJson(filteredEvents), 'application/json');
+    else if (format === 'json') downloadText(filename, toJson(rows), 'application/json');
     else printReport(buildReportHtml(rows, filename.replace(/\.pdf$/, ''), activeChips.map(([k, v]) => chipLabel(k, v))));
   };
 

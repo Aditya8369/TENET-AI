@@ -78,7 +78,19 @@ export function buildExportFilename(
   else if (from) parts.push(`from_${from}`);
   else if (to) parts.push(`until_${to}`);
 
-  const filterParts = [filters.verdict, filters.status, filters.threatType, filters.detectionType]
+  const hourPart = filters.hourFrom || filters.hourTo
+    ? `hour${filters.hourFrom || '0'}-${filters.hourTo || '23'}`
+    : '';
+  const filterParts = [
+    filters.verdict,
+    filters.status,
+    filters.threatType,
+    filters.detectionType,
+    filters.sourceIP,
+    filters.search && `search-${filters.search}`,
+    filters.dayOfWeek && `day${filters.dayOfWeek}`,
+    hourPart,
+  ]
     .filter((v): v is string => Boolean(v))
     .map(slug)
     .filter(Boolean);
@@ -99,7 +111,7 @@ export function downloadText(filename: string, content: string, mime: string): v
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 function escapeHtml(text: string): string {
