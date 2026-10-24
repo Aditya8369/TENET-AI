@@ -4,7 +4,16 @@ Unit tests for the environment variable validation utility.
 
 import pytest
 
-from services.utils.env_validator import EnvValidationError, port, validate_env_vars
+from services.utils.env_validator import (
+    EnvValidationError,
+    SafeValueError,
+    non_negative_float,
+    port,
+    positive_float,
+    positive_int,
+    probability,
+    validate_env_vars,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -130,7 +139,7 @@ class TestValidateEnvVars:
 
         def min_length(value):
             if len(value) < 32:
-                raise ValueError("must be at least 32 characters")
+                raise SafeValueError("must be at least 32 characters")
             return value
 
         with pytest.raises(EnvValidationError) as exc_info:
@@ -175,8 +184,10 @@ class TestIngestIntegration:
             assert ingest_app.CB_FAILURE_THRESHOLD == 5
             assert ingest_app.redis_cb.failure_threshold == 5
         finally:
-            # Put the env back and reload so other tests see the normal settings.
-            monkeypatch.undo()
+            # Clear only the vars this test set, then reload, so the host's own
+            # environment can't change the outcome.
+            monkeypatch.delenv("REDIS_PORT", raising=False)
+            monkeypatch.delenv("CB_FAILURE_THRESHOLD", raising=False)
             ingest_app.load_config()
 
     def test_startup_fails_fast_on_bad_redis_port(self, monkeypatch):
@@ -191,3 +202,75 @@ class TestIngestIntegration:
             TestClient(app),
         ):
             pass
+
+
+class TestRangeConverters:
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "0", "-1"])
+    def test_positive_float_rejects_bad_values(self, value):
+        with pytest.raises(ValueError):
+            positive_float(value)
+
+    def test_positive_float_accepts_positive(self):
+        assert positive_float("2.5") == 2.5
+
+    @pytest.mark.parametrize("value", ["nan", "inf", "-0.1"])
+    def test_non_negative_float_rejects_bad_values(self, value):
+        with pytest.raises(ValueError):
+            non_negative_float(value)
+
+    def test_non_negative_float_accepts_zero(self):
+        assert non_negative_float("0") == 0.0
+
+    @pytest.mark.parametrize("value", ["nan", "2", "-0.1", "1.01"])
+    def test_probability_rejects_bad_values(self, value):
+        with pytest.raises(ValueError):
+            probability(value)
+
+    @pytest.mark.parametrize("value", ["0", "0.75", "1"])
+    def test_probability_accepts_range(self, value):
+        assert probability(value) == float(value)
+
+    @pytest.mark.parametrize("value", ["0", "-3"])
+    def test_positive_int_rejects_below_one(self, value):
+        with pytest.raises(ValueError):
+            positive_int(value)
+
+    def test_error_names_the_variable_and_range(self, monkeypatch):
+        monkeypatch.setenv("TEST_P", "2")
+        with pytest.raises(EnvValidationError, match="TEST_P: expected a number between 0 and 1"):
+            validate_env_vars([], optional_vars={"TEST_P": 0.5}, types={"TEST_P": probability})
+
+    def test_custom_converter_error_does_not_leak_value(self, monkeypatch):
+        def bad(value: str) -> str:
+            raise ValueError(f"bad token {value}")
+
+        monkeypatch.setenv("TEST_SECRET", "hunter2")
+        with pytest.raises(EnvValidationError) as exc_info:
+            validate_env_vars(["TEST_SECRET"], types={"TEST_SECRET": bad})
+
+        assert "hunter2" not in str(exc_info.value)
+        assert exc_info.value.invalid == {"TEST_SECRET": "invalid value"}
+
+
+class TestAnalyzerIntegration:
+    def test_load_config_rejects_bad_threshold(self, monkeypatch):
+        import services.analyzer.app as analyzer_app
+
+        monkeypatch.setenv("PROMPT_INJECTION_THRESHOLD", "nan")
+        with pytest.raises(EnvValidationError, match="PROMPT_INJECTION_THRESHOLD"):
+            analyzer_app.load_config()
+
+    def test_benchmark_runner_applies_env_config(self, monkeypatch, tmp_path):
+        import services.analyzer.app as analyzer_app
+        from services.analyzer.benchmark.runner import DetectionBenchmarkRunner
+
+        monkeypatch.setenv("PROMPT_INJECTION_THRESHOLD", "0.9")
+        monkeypatch.setenv("MODEL_PATH", str(tmp_path))
+        try:
+            DetectionBenchmarkRunner(str(tmp_path / "dataset.json"))
+
+            assert analyzer_app.PROMPT_INJECTION_THRESHOLD == 0.9
+        finally:
+            monkeypatch.delenv("PROMPT_INJECTION_THRESHOLD", raising=False)
+            monkeypatch.delenv("MODEL_PATH", raising=False)
+            analyzer_app.load_config()

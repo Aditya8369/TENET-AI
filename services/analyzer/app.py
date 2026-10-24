@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from services.utils.logging_config import setup_logging
 from services.security import SecurityManager
 from services.utils.metrics import PrometheusMiddleware, increment_detection
-from services.utils.env_validator import port, validate_env_vars
+from services.utils.env_validator import non_negative_float, port, probability, validate_env_vars
 from prometheus_client import make_asgi_app
 logger = setup_logging(__name__)
 
@@ -45,8 +45,8 @@ _ENV_DEFAULTS = {
 _ENV_TYPES = {
     "REDIS_PORT": port,
     "API_PORT": port,
-    "PROMPT_INJECTION_THRESHOLD": float,
-    "SHUTDOWN_TIMEOUT": float,
+    "PROMPT_INJECTION_THRESHOLD": probability,
+    "SHUTDOWN_TIMEOUT": non_negative_float,
 }
 
 REDIS_HOST = _ENV_DEFAULTS["REDIS_HOST"]

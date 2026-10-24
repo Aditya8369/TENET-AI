@@ -32,7 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from services.utils.logging_config import setup_logging, correlation_id_var
-from services.utils.env_validator import port, validate_env_vars
+from services.utils.env_validator import port, positive_float, positive_int, validate_env_vars
 
 logger = setup_logging(__name__)
 
@@ -51,11 +51,11 @@ _ENV_DEFAULTS = {
 }
 _ENV_TYPES = {
     "REDIS_PORT": port,
-    "REDIS_TIMEOUT_S": float,
+    "REDIS_TIMEOUT_S": positive_float,
     "API_PORT": port,
-    "CB_FAILURE_THRESHOLD": int,
-    "CB_RECOVERY_TIMEOUT_S": float,
-    "CB_HALF_OPEN_MAX_CALLS": int,
+    "CB_FAILURE_THRESHOLD": positive_int,
+    "CB_RECOVERY_TIMEOUT_S": positive_float,
+    "CB_HALF_OPEN_MAX_CALLS": positive_int,
 }
 
 REDIS_HOST = _ENV_DEFAULTS["REDIS_HOST"]

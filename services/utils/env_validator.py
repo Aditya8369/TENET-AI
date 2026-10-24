@@ -6,6 +6,7 @@ malformed setting fails fast with one readable error, instead of a bare
 ``ValueError`` or ``TypeError`` from somewhere deep in the code.
 """
 
+import math
 import os
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -33,6 +34,15 @@ class EnvValidationError(ValueError):
         super().__init__("\n".join(lines))
 
 
+class SafeValueError(ValueError):
+    """A converter error whose message never contains the raw value.
+
+    Only this type's message is shown in startup errors. Any other ``ValueError``
+    from a custom converter is reported as "invalid value", because its message
+    may include the raw (possibly secret) input.
+    """
+
+
 def port(value: str) -> int:
     """Convert a string to a TCP port number.
 
@@ -47,7 +57,46 @@ def port(value: str) -> int:
     """
     number = int(value)
     if not 1 <= number <= 65535:
-        raise ValueError(f"port must be between 1 and 65535, got {number}")
+        raise SafeValueError(f"port must be between 1 and 65535, got {number}")
+    return number
+
+
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise SafeValueError("must be a finite number")
+    return number
+
+
+def positive_float(value: str) -> float:
+    """Convert to a finite float greater than zero (e.g. a timeout)."""
+    number = _finite_float(value)
+    if number <= 0:
+        raise SafeValueError("must be greater than 0")
+    return number
+
+
+def non_negative_float(value: str) -> float:
+    """Convert to a finite float of at least zero."""
+    number = _finite_float(value)
+    if number < 0:
+        raise SafeValueError("must be 0 or greater")
+    return number
+
+
+def probability(value: str) -> float:
+    """Convert to a finite float between 0 and 1 inclusive."""
+    number = _finite_float(value)
+    if not 0 <= number <= 1:
+        raise SafeValueError("must be between 0 and 1")
+    return number
+
+
+def positive_int(value: str) -> int:
+    """Convert to an integer of at least 1 (e.g. a failure count)."""
+    number = int(value)
+    if number < 1:
+        raise SafeValueError("must be at least 1")
     return number
 
 
@@ -56,6 +105,10 @@ _EXPECTED = {
     int: "an integer",
     float: "a number",
     port: "a port number (1-65535)",
+    positive_float: "a number greater than 0",
+    non_negative_float: "a number of 0 or more",
+    probability: "a number between 0 and 1",
+    positive_int: "an integer of 1 or more",
 }
 
 
@@ -137,5 +190,5 @@ def _convert(
         if expected:
             invalid[name] = f"expected {expected}, got {raw!r}"
         else:
-            # Don't echo the raw value for custom converters, it may be a secret.
-            invalid[name] = str(exc) or "invalid value"
+            # Only SafeValueError text is shown; other messages may echo a secret.
+            invalid[name] = str(exc) if isinstance(exc, SafeValueError) else "invalid value"
