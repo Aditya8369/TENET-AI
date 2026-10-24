@@ -162,7 +162,7 @@ export default function App() {
     if (!presetName.trim()) return;
     const next = [...presets, { name: presetName.trim(), filters }];
     setPresets(next);
-    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(next)); } catch {}
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
     setPresetName('');
     setShowPresetInput(false);
   }, [presetName, presets, filters]);
@@ -175,7 +175,7 @@ export default function App() {
   const deletePreset = useCallback((index: number) => {
     const next = presets.filter((_, i) => i !== index);
     setPresets(next);
-    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(next)); } catch {}
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
   }, [presets]);
 
   useEffect(() => {
