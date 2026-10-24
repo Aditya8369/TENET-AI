@@ -264,6 +264,9 @@ class TestAnalyzerIntegration:
         import services.analyzer.app as analyzer_app
         from services.analyzer.benchmark.runner import DetectionBenchmarkRunner
 
+        # load_config() checks every analyzer setting, so start from a clean slate.
+        for name in analyzer_app._ENV_DEFAULTS:
+            monkeypatch.delenv(name, raising=False)
         monkeypatch.setenv("PROMPT_INJECTION_THRESHOLD", "0.9")
         monkeypatch.setenv("MODEL_PATH", str(tmp_path))
         try:
