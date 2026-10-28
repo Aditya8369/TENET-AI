@@ -123,10 +123,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'events' | 'system'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [events, setEvents] = useState<SecurityEvent[]>(MOCK_EVENTS);
-  const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
+  const [selectedAlertSnapshot, setSelectedAlertSnapshot] = useState<SecurityEvent | null>(null);
   const selectedAlert = useMemo(
-    () => events.find(ev => ev.event_id === selectedAlertId) || null,
-    [events, selectedAlertId]
+    () => {
+      if (!selectedAlertSnapshot) return null;
+      return events.find(ev => ev.event_id === selectedAlertSnapshot.event_id) || selectedAlertSnapshot;
+    },
+    [events, selectedAlertSnapshot]
   );
   const [stats, setStats] = useState<Stats>({
     total_events: 124,
@@ -150,30 +153,44 @@ export default function App() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const handleAcknowledge = useCallback((eventId: string) => {
+    const timestamp = new Date().toISOString();
     setEvents(prev => prev.map(ev => {
       if (ev.event_id === eventId) {
         return {
           ...ev,
           alert_status: 'acknowledged',
-          acknowledged_at: new Date().toISOString()
+          acknowledged_at: timestamp
         };
       }
       return ev;
     }));
+    setSelectedAlertSnapshot(curr => (curr && curr.event_id === eventId ? {
+      ...curr,
+      alert_status: 'acknowledged',
+      acknowledged_at: timestamp
+    } : curr));
   }, []);
 
   const handleResolve = useCallback((eventId: string, note?: string) => {
+    const timestamp = new Date().toISOString();
+    const resolutionNote = note || 'Resolved by SOC Analyst';
     setEvents(prev => prev.map(ev => {
       if (ev.event_id === eventId) {
         return {
           ...ev,
           alert_status: 'resolved',
-          resolved_at: new Date().toISOString(),
-          resolution_note: note || 'Resolved by SOC Analyst'
+          resolved_at: timestamp,
+          resolution_note: resolutionNote
         };
       }
       return ev;
     }));
+    setSelectedAlertSnapshot(curr => (curr && curr.event_id === eventId ? {
+      ...curr,
+      alert_status: 'resolved',
+      resolved_at: timestamp,
+      resolution_note: resolutionNote
+    } : curr));
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -679,7 +696,7 @@ export default function App() {
                                   type="button"
                                   className="view-alert-btn"
                                   data-testid={`view-alert-btn-${event.event_id}`}
-                                  onClick={() => setSelectedAlertId(event.event_id)}
+                                  onClick={() => setSelectedAlertSnapshot(event)}
                                 >
                                   <Eye size={13} /> View
                                 </button>
@@ -771,7 +788,7 @@ export default function App() {
       {selectedAlert && (
         <AlertDetailModal
           event={selectedAlert}
-          onClose={() => setSelectedAlertId(null)}
+          onClose={() => setSelectedAlertSnapshot(null)}
           onAcknowledge={handleAcknowledge}
           onResolve={handleResolve}
         />
