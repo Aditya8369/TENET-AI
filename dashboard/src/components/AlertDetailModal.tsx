@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, ShieldAlert, CheckCircle2, AlertTriangle, Copy, Check, Terminal, Clock, Tag } from 'lucide-react';
 import type { SecurityEvent } from '../types/security';
 import { threatTypeLabel } from '../constants/charts';
@@ -10,6 +10,46 @@ interface AlertDetailModalProps {
   onResolve: (eventId: string, note?: string) => void;
 }
 
+const getOwaspMapping = (threatType?: string): string[] => {
+  switch (threatType) {
+    case 'prompt_injection':
+      return [
+        'LLM01: Prompt Injection',
+        'LLM06: Excessive Agency',
+        'Rule: TENET-ADV-092-INJECT',
+      ];
+    case 'jailbreak':
+      return [
+        'LLM01: Prompt Injection / Jailbreak',
+        'LLM02: Sensitive Information Disclosure',
+        'Rule: TENET-ADV-104-JAILBREAK',
+      ];
+    case 'data_extraction':
+      return [
+        'LLM02: Sensitive Information Disclosure',
+        'LLM06: Excessive Agency',
+        'Rule: TENET-ADV-045-DATA-EXFIL',
+      ];
+    case 'phishing':
+      return [
+        'LLM01: Prompt Injection',
+        'LLM05: Supply Chain Vulnerabilities',
+        'Rule: TENET-ADV-088-PHISH',
+      ];
+    case 'role_manipulation':
+      return [
+        'LLM01: Prompt Injection',
+        'LLM06: Excessive Agency',
+        'Rule: TENET-ADV-073-ROLE-SPOOF',
+      ];
+    default:
+      return [
+        'LLM General Reference',
+        'Rule: TENET-ADV-GENERIC',
+      ];
+  }
+};
+
 export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
   event,
   onClose,
@@ -19,23 +59,88 @@ export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [resolutionNote, setResolutionNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   const status = event.alert_status || 'new';
 
-  const handleCopyPrompt = () => {
-    navigator.clipboard.writeText(event.prompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    // Focus the first focusable element inside the modal
+    const focusable = modalRef.current?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable && focusable.length > 0) {
+      focusable[0].focus();
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusableElements = Array.from(
+          modalRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter(el => !el.hasAttribute('disabled'));
+
+        if (focusableElements.length === 0) return;
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement.focus();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
+
+  const handleCopyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(event.prompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Rejection handled without falsely indicating Copied
+    }
   };
 
   const handleResolve = () => {
-    onResolve(event.event_id, resolutionNote || 'Resolved by SOC Analyst');
+    const trimmed = resolutionNote.trim();
+    onResolve(event.event_id, trimmed || 'Resolved by SOC Analyst');
     setShowNoteInput(false);
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} data-testid="alert-modal-backdrop">
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+      data-testid="alert-modal-backdrop"
+    >
       <div
+        ref={modalRef}
         className="modal-card"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -88,6 +193,14 @@ export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
                 {(event.risk_score * 100).toFixed(0)}%
               </span>
             </div>
+            {status === 'resolved' && event.resolved_at && (
+              <div className="triage-status-pill">
+                <span className="triage-label">Resolved:</span>
+                <span className="resolved-note-value" style={{ fontSize: '11px', color: '#22c55e' }}>
+                  {new Date(event.resolved_at).toLocaleTimeString()}{event.resolution_note ? ` (${event.resolution_note})` : ''}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Forensic Metadata Grid */}
@@ -95,7 +208,7 @@ export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
             <div className="forensic-item">
               <span className="forensic-key">Threat Vector</span>
               <span className="forensic-val" data-testid="modal-threat-type">
-                {threatTypeLabel(event.threat_type || 'prompt_injection')}
+                {threatTypeLabel(event.threat_type || 'unknown')}
               </span>
             </div>
             <div className="forensic-item">
@@ -141,9 +254,9 @@ export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
               <Tag size={14} /> OWASP Top 10 for LLM Reference
             </span>
             <div className="mitre-tags">
-              <span className="mitre-pill">LLM01: Prompt Injection</span>
-              <span className="mitre-pill">LLM06: Excessive Agency</span>
-              <span className="mitre-pill">Rule: TENET-ADV-092-INJECT</span>
+              {getOwaspMapping(event.threat_type).map((item) => (
+                <span key={item} className="mitre-pill">{item}</span>
+              ))}
             </div>
           </div>
 
@@ -165,9 +278,21 @@ export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
         {/* Modal Actions */}
         <div className="modal-footer">
           <div className="modal-footer-left">
+            <span
+              className="modal-full-id"
+              data-testid="modal-full-event-id"
+              style={{ fontSize: '11px', color: '#71717a', fontFamily: 'monospace' }}
+            >
+              Full ID: {event.event_id}
+            </span>
             {event.acknowledged_at && (
               <span className="ack-time-label">
                 Acknowledged at {new Date(event.acknowledged_at).toLocaleTimeString()}
+              </span>
+            )}
+            {event.resolved_at && (
+              <span className="resolve-time-label" data-testid="modal-resolved-time" style={{ color: '#22c55e', fontSize: '11px' }}>
+                Resolved at {new Date(event.resolved_at).toLocaleTimeString()}{event.resolution_note ? ` · ${event.resolution_note}` : ''}
               </span>
             )}
           </div>

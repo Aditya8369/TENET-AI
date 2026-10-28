@@ -68,9 +68,9 @@ jobs:
 
       - name: Install root and app dependencies
         run: |
-          npm install
-          npm --prefix dashboard install
-          npm --prefix landing install
+          npm ci
+          npm --prefix dashboard ci
+          npm --prefix landing ci
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium

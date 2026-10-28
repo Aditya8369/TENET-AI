@@ -39,7 +39,7 @@ test.describe('Landing Page E2E Suite', () => {
       await link.click();
 
       const targetSection = page.locator(`#${item.id}`);
-      await expect(targetSection).toBeVisible();
+      await expect(targetSection).toBeInViewport();
     }
   });
 
@@ -77,17 +77,17 @@ test.describe('Landing Page E2E Suite', () => {
     // Click Jailbreak tab
     const jailbreakTab = attackTabs.filter({ hasText: 'Jailbreak' });
     await jailbreakTab.click();
-    await expect(jailbreakTab).toHaveClass(/active/);
+    await expect(jailbreakTab).toHaveAttribute('aria-selected', 'true');
 
     // Click Data Extraction tab
     const extractionTab = attackTabs.filter({ hasText: 'Data Extraction' });
     await extractionTab.click();
-    await expect(extractionTab).toHaveClass(/active/);
+    await expect(extractionTab).toHaveAttribute('aria-selected', 'true');
 
     // Click Prompt Injection tab
     const injectionTab = attackTabs.filter({ hasText: 'Prompt Injection' });
     await injectionTab.click();
-    await expect(injectionTab).toHaveClass(/active/);
+    await expect(injectionTab).toHaveAttribute('aria-selected', 'true');
   });
 
   test('should toggle mobile navigation menu on small viewports', async ({ page }) => {

@@ -22,7 +22,7 @@ The E2E test suites validate complete user journeys across both frontends:
 
 ### 1. Prerequisites
 
-Ensure you have **Node.js 18+** installed.
+Ensure you have **Node.js 20.19+** or **22.12+** installed.
 
 ```bash
 node -v
@@ -51,7 +51,7 @@ npx playwright install chromium
 
 ## 🧪 Running Tests Locally
 
-Playwright automatically boots both Vite dev servers (`landing` on `5173`, `dashboard` on `5174`) before running tests and tears them down afterward.
+Playwright automatically boots both Vite dev servers (`landing` on `5173`, `dashboard` on `5174`) before running tests and tears them down afterward (when running locally, existing servers running on these ports are reused and left running).
 
 ### Run All E2E Tests
 

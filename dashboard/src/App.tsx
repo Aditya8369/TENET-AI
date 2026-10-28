@@ -110,7 +110,7 @@ export default function App() {
   const [user, setUser] = useState<{ email: string; role: string; token: string } | null>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('auth') === 'skip') {
+      if (import.meta.env.DEV && params.get('auth') === 'skip') {
         return { email: 'analyst@tenet.ai', role: 'Senior SOC Responder', token: 'demo' };
       }
       const stored = localStorage.getItem('tenet_soc_user');
@@ -123,7 +123,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'events' | 'system'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [events, setEvents] = useState<SecurityEvent[]>(MOCK_EVENTS);
-  const [selectedAlert, setSelectedAlert] = useState<SecurityEvent | null>(null);
+  const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
+  const selectedAlert = useMemo(
+    () => events.find(ev => ev.event_id === selectedAlertId) || null,
+    [events, selectedAlertId]
+  );
   const [stats, setStats] = useState<Stats>({
     total_events: 124,
     blocked_count: 12,
@@ -148,13 +152,11 @@ export default function App() {
   const handleAcknowledge = useCallback((eventId: string) => {
     setEvents(prev => prev.map(ev => {
       if (ev.event_id === eventId) {
-        const updated: SecurityEvent = {
+        return {
           ...ev,
           alert_status: 'acknowledged',
           acknowledged_at: new Date().toISOString()
         };
-        setSelectedAlert(curr => curr && curr.event_id === eventId ? updated : curr);
-        return updated;
       }
       return ev;
     }));
@@ -163,14 +165,12 @@ export default function App() {
   const handleResolve = useCallback((eventId: string, note?: string) => {
     setEvents(prev => prev.map(ev => {
       if (ev.event_id === eventId) {
-        const updated: SecurityEvent = {
+        return {
           ...ev,
           alert_status: 'resolved',
           resolved_at: new Date().toISOString(),
           resolution_note: note || 'Resolved by SOC Analyst'
         };
-        setSelectedAlert(curr => curr && curr.event_id === eventId ? updated : curr);
-        return updated;
       }
       return ev;
     }));
@@ -179,6 +179,11 @@ export default function App() {
   const handleLogout = useCallback(() => {
     try {
       localStorage.removeItem('tenet_soc_user');
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('auth')) {
+        url.searchParams.delete('auth');
+        window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+      }
     } catch { /* storage unavailable */ }
     setUser(null);
   }, []);
@@ -261,7 +266,23 @@ export default function App() {
         axios.get(`http://localhost:8100/health`)
       ]);
       if (eventsRes.status === 'fulfilled') {
-        setEvents(Array.isArray(eventsRes.value.data.events) ? eventsRes.value.data.events : []);
+        const fetchedEvents = Array.isArray(eventsRes.value.data.events) ? eventsRes.value.data.events : [];
+        setEvents(prev => {
+          const prevMap = new Map(prev.map(e => [e.event_id, e]));
+          return fetchedEvents.map((fe: SecurityEvent) => {
+            const existing = prevMap.get(fe.event_id);
+            if (existing && existing.alert_status && !fe.alert_status) {
+              return {
+                ...fe,
+                alert_status: existing.alert_status,
+                acknowledged_at: existing.acknowledged_at,
+                resolved_at: existing.resolved_at,
+                resolution_note: existing.resolution_note,
+              };
+            }
+            return fe;
+          });
+        });
       }
       if (statsRes.status === 'fulfilled') setStats(prev => statsRes.value.data || prev);
       setHealth({
@@ -658,7 +679,7 @@ export default function App() {
                                   type="button"
                                   className="view-alert-btn"
                                   data-testid={`view-alert-btn-${event.event_id}`}
-                                  onClick={() => setSelectedAlert(event)}
+                                  onClick={() => setSelectedAlertId(event.event_id)}
                                 >
                                   <Eye size={13} /> View
                                 </button>
@@ -750,7 +771,7 @@ export default function App() {
       {selectedAlert && (
         <AlertDetailModal
           event={selectedAlert}
-          onClose={() => setSelectedAlert(null)}
+          onClose={() => setSelectedAlertId(null)}
           onAcknowledge={handleAcknowledge}
           onResolve={handleResolve}
         />

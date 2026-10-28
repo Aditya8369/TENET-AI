@@ -75,25 +75,24 @@ test.describe('SOC Dashboard Alert Management E2E Suite', () => {
     const modal = page.locator('[data-testid="alert-detail-modal"]');
     await expect(modal).toBeVisible();
 
-    // Click Resolve Alert in modal
+    // Click Resolve Alert in modal (first alert is unresolved, so resolve button must be visible)
     const resolveBtn = page.locator('[data-testid="modal-resolve-btn"]');
-    if (await resolveBtn.isVisible()) {
-      await resolveBtn.click();
+    await expect(resolveBtn).toBeVisible();
+    await resolveBtn.click();
 
-      // Enter resolution note
-      const noteInput = page.locator('[data-testid="resolution-note-input"]');
-      await expect(noteInput).toBeVisible();
-      await noteInput.fill('Verified and quarantined attacking agent session.');
+    // Enter resolution note
+    const noteInput = page.locator('[data-testid="resolution-note-input"]');
+    await expect(noteInput).toBeVisible();
+    await noteInput.fill('Verified and quarantined attacking agent session.');
 
-      // Confirm resolution
-      const confirmBtn = page.locator('[data-testid="modal-confirm-resolve-btn"]');
-      await confirmBtn.click();
+    // Confirm resolution
+    const confirmBtn = page.locator('[data-testid="modal-confirm-resolve-btn"]');
+    await confirmBtn.click();
 
-      // Modal workflow badge should update to Resolved
-      const modalStatus = page.locator('[data-testid="modal-workflow-status"]');
-      await expect(modalStatus).toHaveClass(/status-resolved/);
-      await expect(modalStatus).toContainText('Resolved');
-    }
+    // Modal workflow badge should update to Resolved
+    const modalStatus = page.locator('[data-testid="modal-workflow-status"]');
+    await expect(modalStatus).toHaveClass(/status-resolved/);
+    await expect(modalStatus).toContainText('Resolved');
 
     // Close modal
     await page.locator('[data-testid="modal-dismiss-btn"]').click();

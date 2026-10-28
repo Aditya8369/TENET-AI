@@ -26,8 +26,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    // Validation: password123 or valid admin credential
-    if (password !== 'password123' && password !== 'admin123' && password.length < 6) {
+    // Validation: Match valid analyst/admin demo accounts
+    const VALID_ACCOUNTS: Record<string, string> = {
+      'analyst@tenet.ai': 'password123',
+      'admin@tenet.ai': 'admin123',
+    };
+    if (VALID_ACCOUNTS[username.trim()] !== password) {
       setError('Invalid credentials. Use analyst@tenet.ai / password123 or click "Fill Demo Credentials".');
       return;
     }
@@ -145,7 +149,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         </div>
 
         <div className="login-compliance-notice">
-          <span>🔒 FIPS 140-3 Compliant Session · Activity is logged and audited</span>
+          <span>🔒 TENET SOC Security Console · Authorized Personnel Only</span>
         </div>
       </div>
     </div>

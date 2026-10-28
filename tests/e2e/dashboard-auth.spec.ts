@@ -24,14 +24,20 @@ test.describe('SOC Dashboard Authentication E2E Suite', () => {
   });
 
   test('should show validation error on empty credentials submission', async ({ page }) => {
-    // Clear username and submit
+    // 1. Clear both username and password -> asserts analyst email/ID is required
     await page.locator('[data-testid="login-username-input"]').fill('');
     await page.locator('[data-testid="login-password-input"]').fill('');
     await page.locator('[data-testid="login-submit-button"]').click();
 
     const errorAlert = page.locator('[data-testid="login-error-message"]');
     await expect(errorAlert).toBeVisible();
-    await expect(errorAlert).toContainText(/required/i);
+    await expect(errorAlert).toContainText('Analyst email or ID is required.');
+
+    // 2. Fill username with empty password -> asserts password is required
+    await page.locator('[data-testid="login-username-input"]').fill('analyst@tenet.ai');
+    await page.locator('[data-testid="login-submit-button"]').click();
+    await expect(errorAlert).toBeVisible();
+    await expect(errorAlert).toContainText('Password is required.');
   });
 
   test('should show error when invalid password is entered', async ({ page }) => {

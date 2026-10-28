@@ -6,6 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  testIgnore: process.env.npm_lifecycle_event === 'test:e2e:visual' || process.env.RUN_VISUAL ? [] : ['**/visual-regression.spec.ts'],
   timeout: 30 * 1000,
   expect: {
     timeout: 7000,

@@ -25,21 +25,22 @@ test.describe('SOC Dashboard Filtering and Search E2E Suite', () => {
     const searchInput = page.locator('input[aria-label="Search events"]');
     await expect(searchInput).toBeVisible();
 
+    const rows = page.locator('tbody tr');
+    const initialRowCount = await rows.count();
+
     // Type search query
     await searchInput.fill('bypass');
 
     // Verify filtered table only shows matching results
-    const rows = page.locator('tbody tr');
     await expect(rows.first()).toBeVisible();
     await expect(rows.first()).toContainText(/bypass/i);
 
     // Verify export count updates
-    const countText = await page.locator('.export-count').textContent();
-    expect(countText).toContain('event');
+    await expect(page.locator('.export-count')).toHaveText('2 events');
 
     // Clear search and verify full list is restored
     await searchInput.fill('');
-    await expect(rows).toHaveCount(10);
+    await expect(rows).toHaveCount(initialRowCount);
   });
 
   test('should focus search input when pressing shortcut key "/"', async ({ page }) => {
@@ -147,10 +148,12 @@ test.describe('SOC Dashboard Filtering and Search E2E Suite', () => {
     // Click a bar chart segment
     const barRectangle = page.locator('.recharts-bar-rectangle').first();
     await expect(barRectangle).toBeVisible();
-    await barRectangle.click({ force: true });
+    await barRectangle.click();
 
     // Should automatically switch to Alert Feed tab with filter active
     await expect(page.locator('.events-list')).toBeVisible();
-    await expect(page.locator('.active-chips .chip')).toBeVisible();
+    const chip = page.locator('.active-chips .chip');
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText('Severity: malicious');
   });
 });
