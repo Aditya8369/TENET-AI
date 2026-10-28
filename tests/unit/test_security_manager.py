@@ -1,6 +1,8 @@
 """
 Unit tests for the SecurityManager (multi-tenant auth, RBAC, quotas, audit log).
 """
+import hashlib
+import hmac
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock
@@ -54,7 +56,6 @@ class TestSecurityManagerAuth:
     async def test_blocked_org_raises_403(self, monkeypatch):
         monkeypatch.setenv("BLOCKED_ORGS", "blocked-org,other-org")
         sm = SecurityManager("test-service")
-        # Default key uses "default-org" by default; mock key with blocked org
         sm.keys_config["blocked-key"] = {
             "org_id": "blocked-org",
             "key_id": "key-1",
@@ -95,9 +96,12 @@ class TestSecurityManagerAuth:
         assert "Insufficient permissions" in exc.value.detail
 
     @pytest.mark.asyncio
-    async def test_valid_auth_success(self):
+    async def test_valid_auth_success(self, monkeypatch):
+        test_key = "test-isolated-key"
+        monkeypatch.setenv("API_KEY", test_key)
+        monkeypatch.delenv("TENET_API_KEYS_JSON", raising=False)
         sm = SecurityManager("test-service")
-        context = await sm.require_auth("tenet-dev-key-change-in-production", "read")
+        context = await sm.require_auth(test_key, "read")
         assert isinstance(context, AuthContext)
         assert "read" in context.permissions
 
@@ -112,11 +116,9 @@ class TestRateLimitingAndQuotas:
             org_id="test-org", key_id="key-rate", role="admin",
             permissions={"read"}, rpm_limit=2, daily_quota=100
         )
-        # Should allow up to 2 calls
         await sm._enforce_rate_limit(context)
         await sm._enforce_rate_limit(context)
 
-        # 3rd call exceeds
         with pytest.raises(HTTPException) as exc:
             await sm._enforce_rate_limit(context)
         assert exc.value.status_code == 429
@@ -140,10 +142,8 @@ class TestRateLimitingAndQuotas:
     def test_memory_counter_expiration(self):
         sm = SecurityManager("test-service")
         store = {}
-        # Set an expired entry
         store["test-key"] = (5, int(time.time()) - 10)
 
-        # Should reset count and refresh expiration
         count = sm._increment_memory_counter("test-key", ttl=60, store=store)
         assert count == 1
         assert store["test-key"][1] > int(time.time())
@@ -173,7 +173,6 @@ class TestRateLimitingAndQuotas:
     async def test_redis_counter_fallback_on_none_or_bad_type(self):
         mock_redis = MagicMock()
 
-        # Redis returns None (failure)
         sm1 = SecurityManager(
             service_name="test-service",
             redis_call=AsyncMock(return_value=None),
@@ -182,7 +181,6 @@ class TestRateLimitingAndQuotas:
         count1 = await sm1._increment_counter("key", 100, {})
         assert count1 == 1
 
-        # Redis returns invalid type
         sm2 = SecurityManager(
             service_name="test-service",
             redis_call=AsyncMock(return_value="not-an-int"),
@@ -203,7 +201,13 @@ class TestAuditLogging:
         rec1 = sm.audit(action="login", result="success")
         assert rec1["prev_hash"] == "0" * 64
         assert "hash" in rec1
-        assert "signature" in rec1
+
+        expected_sig = hmac.new(
+            sm.audit_secret.encode("utf-8"),
+            rec1["hash"].encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        assert hmac.compare_digest(rec1["signature"], expected_sig)
 
         rec2 = sm.audit(action="query", result="success")
         assert rec2["prev_hash"] == rec1["hash"]
@@ -231,4 +235,3 @@ class TestAuditLogging:
         assert len(records) == 2
         assert records[0]["action"] == "act-1"
         assert records[1]["action"] == "act-3"
-

@@ -3,6 +3,7 @@ Unit tests for the Phishing / Adversarial Prompt Detection Model core.
 """
 import hashlib
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -67,7 +68,6 @@ class TestPhishingDetectorHeuristics:
 
     @pytest.fixture
     def detector(self):
-        # Use an empty / non-existent directory so ML model is not loaded
         return PhishingDetector(model_path="/nonexistent/model/path")
 
     def test_init_without_model(self, detector):
@@ -135,7 +135,6 @@ class TestPhishingDetectorML:
         detector.vectorizer = MagicMock()
         detector.model = MagicMock()
 
-        # Binary classification with 2 probabilities [prob_benign, prob_malicious]
         detector.vectorizer.transform.return_value = ["dummy_vector"]
         detector.model.predict_proba.return_value = [[0.1, 0.9]]
         detector.model.predict.return_value = [1]
@@ -190,14 +189,15 @@ class TestPhishingDetectorML:
 
     def test_ml_analysis_handles_exception(self, detector):
         detector.model_loaded = True
+        detector.model = MagicMock()
         detector.vectorizer = MagicMock()
         detector.vectorizer.transform.side_effect = RuntimeError("Vectorization crashed")
 
         res = detector._ml_analysis("test prompt")
         assert res is None
+        detector.vectorizer.transform.assert_called_once_with(["test prompt"])
 
     def test_combine_results_ml_priority(self, detector):
-        # Heuristic is low (< 0.5), ML is high (> 0.7)
         heuristic = {
             "risk_score": 0.1,
             "verdict": Verdict.BENIGN,
@@ -218,7 +218,6 @@ class TestPhishingDetectorML:
         assert combined.details["method"] == "ml"
 
     def test_combine_results_medium_heuristic(self, detector):
-        # Heuristic is medium (0.6), ML is low
         heuristic = {
             "risk_score": 0.6,
             "verdict": Verdict.SUSPICIOUS,
@@ -260,23 +259,26 @@ class TestPhishingDetectorML:
 class TestModelArtifactsVerification:
     """Tests for model loading and artifact verification logic."""
 
-    def test_load_model_missing_metadata(self, tmp_path):
-        # Create model and vectorizer files, but omit metadata.json
+    def test_load_model_missing_metadata(self, tmp_path, caplog):
         (tmp_path / "prompt_detector.joblib").write_text("model")
         (tmp_path / "vectorizer.joblib").write_text("vectorizer")
 
-        detector = PhishingDetector(model_path=str(tmp_path))
-        assert not detector.is_model_loaded
+        with caplog.at_level(logging.ERROR):
+            detector = PhishingDetector(model_path=str(tmp_path))
+            assert not detector.is_model_loaded
+            assert "Model metadata is required but missing" in caplog.text
 
-    def test_load_model_metadata_missing_fields(self, tmp_path):
+    def test_load_model_metadata_missing_fields(self, tmp_path, caplog):
         (tmp_path / "prompt_detector.joblib").write_text("model")
         (tmp_path / "vectorizer.joblib").write_text("vectorizer")
         (tmp_path / "metadata.json").write_text(json.dumps({"version": "1.0"}))
 
-        detector = PhishingDetector(model_path=str(tmp_path))
-        assert not detector.is_model_loaded
+        with caplog.at_level(logging.ERROR):
+            detector = PhishingDetector(model_path=str(tmp_path))
+            assert not detector.is_model_loaded
+            assert "Model metadata missing required fields" in caplog.text
 
-    def test_load_model_missing_checksums(self, tmp_path):
+    def test_load_model_missing_checksums(self, tmp_path, caplog):
         from services.analyzer.model.phishing_model import REQUIRED_METADATA_FIELDS
 
         (tmp_path / "prompt_detector.joblib").write_text("model")
@@ -284,10 +286,12 @@ class TestModelArtifactsVerification:
         metadata = {field: "test" for field in REQUIRED_METADATA_FIELDS}
         (tmp_path / "metadata.json").write_text(json.dumps(metadata))
 
-        detector = PhishingDetector(model_path=str(tmp_path))
-        assert not detector.is_model_loaded
+        with caplog.at_level(logging.ERROR):
+            detector = PhishingDetector(model_path=str(tmp_path))
+            assert not detector.is_model_loaded
+            assert "Checksum manifest is required but missing" in caplog.text
 
-    def test_load_model_empty_checksum_manifest(self, tmp_path):
+    def test_load_model_empty_checksum_manifest(self, tmp_path, caplog):
         from services.analyzer.model.phishing_model import REQUIRED_METADATA_FIELDS
 
         (tmp_path / "prompt_detector.joblib").write_text("model")
@@ -296,10 +300,12 @@ class TestModelArtifactsVerification:
         (tmp_path / "metadata.json").write_text(json.dumps(metadata))
         (tmp_path / "checksums.json").write_text(json.dumps({"artifacts": {}}))
 
-        detector = PhishingDetector(model_path=str(tmp_path))
-        assert not detector.is_model_loaded
+        with caplog.at_level(logging.ERROR):
+            detector = PhishingDetector(model_path=str(tmp_path))
+            assert not detector.is_model_loaded
+            assert "Checksum manifest exists but contains no artifacts" in caplog.text
 
-    def test_load_model_checksum_path_escape(self, tmp_path):
+    def test_load_model_checksum_path_escape(self, tmp_path, caplog):
         from services.analyzer.model.phishing_model import REQUIRED_METADATA_FIELDS
 
         (tmp_path / "prompt_detector.joblib").write_text("model")
@@ -310,10 +316,12 @@ class TestModelArtifactsVerification:
             json.dumps({"artifacts": {"../../escaped_file": "dummy_hash"}})
         )
 
-        detector = PhishingDetector(model_path=str(tmp_path))
-        assert not detector.is_model_loaded
+        with caplog.at_level(logging.ERROR):
+            detector = PhishingDetector(model_path=str(tmp_path))
+            assert not detector.is_model_loaded
+            assert "Checksum manifest contains invalid artifact path" in caplog.text
 
-    def test_load_model_checksum_missing_file(self, tmp_path):
+    def test_load_model_checksum_missing_file(self, tmp_path, caplog):
         from services.analyzer.model.phishing_model import REQUIRED_METADATA_FIELDS
 
         (tmp_path / "prompt_detector.joblib").write_text("model")
@@ -324,10 +332,12 @@ class TestModelArtifactsVerification:
             json.dumps({"artifacts": {"nonexistent.joblib": "dummy_hash"}})
         )
 
-        detector = PhishingDetector(model_path=str(tmp_path))
-        assert not detector.is_model_loaded
+        with caplog.at_level(logging.ERROR):
+            detector = PhishingDetector(model_path=str(tmp_path))
+            assert not detector.is_model_loaded
+            assert "Artifact referenced in checksum manifest is missing" in caplog.text
 
-    def test_load_model_checksum_mismatch(self, tmp_path):
+    def test_load_model_checksum_mismatch(self, tmp_path, caplog):
         from services.analyzer.model.phishing_model import REQUIRED_METADATA_FIELDS
 
         m_file = tmp_path / "prompt_detector.joblib"
@@ -341,8 +351,10 @@ class TestModelArtifactsVerification:
             json.dumps({"artifacts": {"prompt_detector.joblib": "wrong_hash"}})
         )
 
-        detector = PhishingDetector(model_path=str(tmp_path))
-        assert not detector.is_model_loaded
+        with caplog.at_level(logging.ERROR):
+            detector = PhishingDetector(model_path=str(tmp_path))
+            assert not detector.is_model_loaded
+            assert "Checksum mismatch for prompt_detector.joblib" in caplog.text
 
     @patch("joblib.load")
     def test_load_model_successful(self, mock_joblib_load, tmp_path):
@@ -376,7 +388,12 @@ class TestModelArtifactsVerification:
 class TestConvenienceFunctions:
     """Tests for get_detector and detect_threat module-level functions."""
 
-    def test_get_detector_and_detect_threat(self):
+    def test_get_detector_and_detect_threat(self, monkeypatch, tmp_path):
+        import services.analyzer.model.phishing_model as pm
+
+        monkeypatch.setattr(pm, "_detector", None)
+        monkeypatch.setattr(pm, "DEFAULT_MODEL_PATH", str(tmp_path))
+
         detector = get_detector()
         assert isinstance(detector, PhishingDetector)
         assert get_detector() is detector
@@ -385,3 +402,4 @@ class TestConvenienceFunctions:
         assert isinstance(result, DetectionResult)
         assert result.verdict == Verdict.MALICIOUS
 
+        monkeypatch.setattr(pm, "_detector", None)

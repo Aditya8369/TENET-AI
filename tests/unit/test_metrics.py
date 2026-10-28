@@ -54,8 +54,17 @@ class TestPrometheusMiddleware:
         async def call_next(req):
             return mock_response
 
+        before = REQUEST_COUNT.labels(
+            method="GET", endpoint="/api/test", status="200"
+        )._value.get()
+
         res = await middleware.dispatch(request, call_next)
         assert res.status_code == 200
+
+        after = REQUEST_COUNT.labels(
+            method="GET", endpoint="/api/test", status="200"
+        )._value.get()
+        assert after == before + 1
 
     @pytest.mark.asyncio
     async def test_dispatch_unhandled_exception_records_500(self):
@@ -67,6 +76,14 @@ class TestPrometheusMiddleware:
         async def call_next(req):
             raise RuntimeError("Internal crash")
 
+        before = REQUEST_COUNT.labels(
+            method="POST", endpoint="/api/fail", status="500"
+        )._value.get()
+
         with pytest.raises(RuntimeError, match="Internal crash"):
             await middleware.dispatch(request, call_next)
 
+        after = REQUEST_COUNT.labels(
+            method="POST", endpoint="/api/fail", status="500"
+        )._value.get()
+        assert after == before + 1

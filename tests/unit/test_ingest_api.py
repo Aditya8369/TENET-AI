@@ -29,6 +29,21 @@ client = TestClient(app)
 VALID_API_KEY = "tenet-dev-key-change-in-production"
 
 
+@pytest.fixture(autouse=True)
+def isolate_ingest_globals():
+    """Ensure tests do not leak mutated globals to subsequent tests."""
+    import services.ingest.app as app_mod
+
+    orig_redis = app_mod.redis_client
+    orig_shutdown = app_mod._shutdown_event
+    app_mod._shutdown_event = asyncio.Event()
+    try:
+        yield
+    finally:
+        app_mod.redis_client = orig_redis
+        app_mod._shutdown_event = orig_shutdown
+
+
 class TestCircuitBreaker:
     """Comprehensive tests for the CircuitBreaker state machine."""
 
@@ -56,12 +71,11 @@ class TestCircuitBreaker:
 
         # Wait for recovery timeout to pass
         time.sleep(0.06)
+        # The transition call is counted as the probe call (_half_open_calls = 1)
         assert cb.allow_request() is True
         assert cb.state == CircuitState.HALF_OPEN
 
-        # Call in HALF_OPEN consumes half_open_max_calls (1)
-        assert cb.allow_request() is True
-        # Further calls in HALF_OPEN should be rejected once max calls is reached
+        # Further calls in HALF_OPEN are rejected once half_open_max_calls is reached
         assert cb.allow_request() is False
 
     @pytest.mark.asyncio
@@ -189,7 +203,8 @@ class TestIngestLifecycle:
     async def test_startup_redis_connected(self):
         with patch("services.ingest.app.load_config"), \
              patch("services.ingest.app.redis.Redis") as mock_redis_cls, \
-             patch("services.ingest.app._redis_reconnect_loop", return_value=None):
+             patch("services.ingest.app._redis_reconnect_loop", return_value=None), \
+             patch("services.ingest.app.redis_client", None):
             mock_redis = MagicMock()
             mock_redis.ping = AsyncMock(return_value=True)
             mock_redis_cls.return_value = mock_redis
@@ -204,11 +219,15 @@ class TestIngestLifecycle:
         import services.ingest.app as app_mod
         mock_redis = MagicMock()
         mock_redis.close = AsyncMock()
-        app_mod.redis_client = mock_redis
 
-        await shutdown()
-        assert app_mod._shutdown_event.is_set()
-        mock_redis.close.assert_awaited_once()
+        app_mod._shutdown_event.clear()
+        try:
+            with patch("services.ingest.app.redis_client", mock_redis):
+                await shutdown()
+                assert app_mod._shutdown_event.is_set()
+                mock_redis.close.assert_awaited_once()
+        finally:
+            app_mod._shutdown_event.clear()
 
 
 class TestIngestEndpoints:
@@ -247,15 +266,8 @@ class TestIngestEndpoints:
             json.dumps({"event_id": "e3", "org_id": "test-org", "timestamp": "2026-01-01T12:00:00"}),
         ]
 
-        async def mock_redis_call(coro):
-            return ["tenet:event:e1", "tenet:event:e2", "tenet:event:e3"]
-
-        async def mock_get_event(coro):
-            pass
-
         with patch("services.ingest.app.security.require_auth", new_callable=AsyncMock, return_value=mock_auth), \
-             patch("services.ingest.app.redis_client", MagicMock()) as mock_client:
-            # We mock redis_call so keys returns list, and get calls return json
+             patch("services.ingest.app.redis_client", MagicMock()):
             side_effects = [
                 ["tenet:event:e1", "tenet:event:e2", "tenet:event:e3"],
                 mock_events[0],
@@ -266,7 +278,7 @@ class TestIngestEndpoints:
                 res = await list_events(limit=10, offset=0)
                 assert res["total"] == 2
                 assert len(res["events"]) == 2
-                assert res["events"][0]["event_id"] == "e3"  # Sorted descending by timestamp
+                assert res["events"][0]["event_id"] == "e3"
 
     @pytest.mark.asyncio
     async def test_get_event_empty_id(self):
@@ -396,4 +408,3 @@ class TestIngestEndpoints:
             res = await export_audit_logs()
             assert res["exported"] == 1
             assert res["records"] == [{"action": "test"}]
-

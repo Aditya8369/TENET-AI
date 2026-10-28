@@ -25,10 +25,28 @@ from services.analyzer.app import (
     shutdown,
     startup,
 )
-from services.security.tenant_security import AuthContext
+from services.security.tenant_security import AuthContext, SecurityManager
 
 client = TestClient(app)
-VALID_API_KEY = "tenet-dev-key-change-in-production"
+
+
+@pytest.fixture(autouse=True)
+def isolate_analyzer_globals(monkeypatch):
+    """Snapshot and restore services.analyzer.app globals using monkeypatch."""
+    import services.analyzer.app as app_mod
+
+    orig_task = app_mod.background_task
+    monkeypatch.setattr(app_mod, "redis_client", app_mod.redis_client)
+    monkeypatch.setattr(app_mod, "ml_model", app_mod.ml_model)
+    monkeypatch.setattr(app_mod, "vectorizer", app_mod.vectorizer)
+    monkeypatch.setattr(app_mod, "stop_event", app_mod.stop_event)
+    monkeypatch.setattr(app_mod, "background_task", app_mod.background_task)
+    monkeypatch.setattr(app_mod, "security", app_mod.security)
+    try:
+        yield
+    finally:
+        if app_mod.background_task and app_mod.background_task != orig_task:
+            app_mod.background_task.cancel()
 
 
 class TestAnalyzerLifecycle:
@@ -72,8 +90,6 @@ class TestAnalyzerLifecycle:
 
             import services.analyzer.app as app_mod
             assert app_mod.redis_client is None
-            if app_mod.background_task:
-                app_mod.background_task.cancel()
 
     @pytest.mark.asyncio
     async def test_startup_redis_success(self):
@@ -89,15 +105,12 @@ class TestAnalyzerLifecycle:
 
             import services.analyzer.app as app_mod
             assert app_mod.redis_client is mock_redis
-            if app_mod.background_task:
-                app_mod.background_task.cancel()
 
     @pytest.mark.asyncio
     async def test_shutdown_graceful(self):
         import services.analyzer.app as app_mod
         app_mod.stop_event = asyncio.Event()
 
-        # Create dummy background task
         async def dummy_bg():
             while not app_mod.stop_event.is_set():
                 await asyncio.sleep(0.01)
@@ -116,7 +129,6 @@ class TestAnalyzerLifecycle:
         import services.analyzer.app as app_mod
         app_mod.stop_event = asyncio.Event()
 
-        # Create task that ignores stop_event to force timeout
         async def stubborn_bg():
             await asyncio.sleep(10.0)
 
@@ -196,11 +208,18 @@ class TestAnalyzerEndpoints:
         )
         assert response.status_code == 401
 
-    def test_analyze_http_valid_request(self):
+    def test_analyze_http_valid_request(self, monkeypatch):
+        test_key = "test-env-key-999"
+        monkeypatch.setenv("API_KEY", test_key)
+        monkeypatch.delenv("TENET_API_KEYS_JSON", raising=False)
+
+        import services.analyzer.app as app_mod
+        app_mod.security = SecurityManager("analyzer")
+
         response = client.post(
             "/v1/analyze",
             json={"prompt": "Hello world!"},
-            headers={"X-API-Key": VALID_API_KEY},
+            headers={"X-API-Key": test_key},
         )
         assert response.status_code == 200
         data = response.json()
@@ -296,7 +315,6 @@ class TestQueueProcessing:
     async def test_wait_with_timeout_fires(self):
         import services.analyzer.app as app_mod
         app_mod.stop_event = asyncio.Event()
-        # Should timeout cleanly without raising TimeoutError
         await _wait_with_timeout(0.01)
 
     @pytest.mark.asyncio
@@ -333,28 +351,64 @@ class TestQueueProcessing:
 
     @pytest.mark.asyncio
     async def test_process_single_event_invalid_json(self):
+        import services.analyzer.app as app_mod
+        mock_redis = MagicMock()
+        mock_redis.set = AsyncMock()
+        app_mod.redis_client = mock_redis
+
         await _process_single_event("not-valid-json{")
+        mock_redis.set.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_process_single_event_not_dict(self):
+        import services.analyzer.app as app_mod
+        mock_redis = MagicMock()
+        mock_redis.set = AsyncMock()
+        app_mod.redis_client = mock_redis
+
         await _process_single_event(json.dumps(["not", "a", "dict"]))
+        mock_redis.set.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_process_single_event_missing_event_id(self):
+        import services.analyzer.app as app_mod
+        mock_redis = MagicMock()
+        mock_redis.set = AsyncMock()
+        app_mod.redis_client = mock_redis
+
         await _process_single_event(json.dumps({"prompt": "Hello"}))
+        mock_redis.set.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_process_single_event_empty_stripped_event_id(self):
+        import services.analyzer.app as app_mod
+        mock_redis = MagicMock()
+        mock_redis.set = AsyncMock()
+        app_mod.redis_client = mock_redis
+
         await _process_single_event(json.dumps({"event_id": "   ", "prompt": "Hello"}))
+        mock_redis.set.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_process_single_event_long_event_id(self):
+        import services.analyzer.app as app_mod
+        mock_redis = MagicMock()
+        mock_redis.set = AsyncMock()
+        app_mod.redis_client = mock_redis
+
         await _process_single_event(json.dumps({"event_id": "x" * 300, "prompt": "Hello"}))
+        mock_redis.set.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_process_single_event_invalid_prompt(self):
+        import services.analyzer.app as app_mod
+        mock_redis = MagicMock()
+        mock_redis.set = AsyncMock()
+        app_mod.redis_client = mock_redis
+
         await _process_single_event(json.dumps({"event_id": "evt-1", "prompt": 12345}))
         await _process_single_event(json.dumps({"event_id": "evt-2", "prompt": "   "}))
+        mock_redis.set.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_process_single_event_long_prompt_truncation(self):
@@ -365,8 +419,10 @@ class TestQueueProcessing:
         app_mod.redis_client = mock_redis
 
         event = {"event_id": "evt-long", "prompt": "A" * 15000}
-        await _process_single_event(json.dumps(event))
-        mock_redis.set.assert_awaited_once()
+        with patch("services.analyzer.app.run_analysis", wraps=run_analysis) as spy_analysis:
+            await _process_single_event(json.dumps(event))
+            spy_analysis.assert_called_once_with("A" * 10000)
+            mock_redis.set.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_event_queue_stopped_immediately(self):
@@ -381,7 +437,6 @@ class TestQueueProcessing:
         app_mod.stop_event = asyncio.Event()
 
         mock_redis = MagicMock()
-        # First call returns event, second call returns None, then stop
         mock_redis.rpop = AsyncMock(side_effect=[
             json.dumps({"event_id": "evt-1", "prompt": "Hello"}),
             None,
@@ -393,8 +448,12 @@ class TestQueueProcessing:
             await asyncio.sleep(0.05)
             app_mod.stop_event.set()
 
-        asyncio.create_task(stop_after_delay())
+        stopper_task = asyncio.create_task(stop_after_delay())
         await process_event_queue()
+        await stopper_task
+
+        assert mock_redis.rpop.await_count >= 2
+        mock_redis.set.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_event_queue_handles_exception(self):
@@ -409,6 +468,8 @@ class TestQueueProcessing:
             await asyncio.sleep(0.05)
             app_mod.stop_event.set()
 
-        asyncio.create_task(stop_after_delay())
+        stopper_task = asyncio.create_task(stop_after_delay())
         await process_event_queue()
+        await stopper_task
 
+        assert mock_redis.rpop.await_count >= 1
