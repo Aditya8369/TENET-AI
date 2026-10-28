@@ -3,6 +3,7 @@
 **Defensive Security Middleware for LLM Applications**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Coverage: 96%](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 ![Security: Active](https://img.shields.io/badge/security-active-brightgreen.svg)
