@@ -193,6 +193,10 @@ export default function App() {
     } : curr));
   }, []);
 
+  const handleCloseAlert = useCallback(() => {
+    setSelectedAlertSnapshot(null);
+  }, []);
+
   const handleLogout = useCallback(() => {
     try {
       localStorage.removeItem('tenet_soc_user');
