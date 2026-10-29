@@ -388,15 +388,15 @@ export default function App() {
 
   const detectionTypes = [...new Set(events.map(e => e.source_type))];
   const handleFeedback = (
-  eventId: string,
-  type: "false_positive" | "false_negative"
-) => {
-  setFeedback(prev => ({
-    ...prev,
-    [eventId]: type
-  }));
+    eventId: string,
+    type: "false_positive" | "false_negative"
+  ) => {
+    setFeedback(prev => ({
+      ...prev,
+      [eventId]: type
+    }));
 
-};
+  };
 
   const handleExport = (format: ExportFormat) => {
     // same rows as the table, with the resolved threat type filled in
@@ -627,8 +627,8 @@ export default function App() {
                         onKeyDown={e => e.key === 'Enter' && savePreset()}
                         autoFocus
                       />
-                        <button aria-label="Confirm preset name" onClick={savePreset}><CheckCircle size={14} /></button>
-                        <button aria-label="Cancel" onClick={() => setShowPresetInput(false)}><X size={14} /></button>
+                      <button aria-label="Confirm preset name" onClick={savePreset}><CheckCircle size={14} /></button>
+                      <button aria-label="Cancel" onClick={() => setShowPresetInput(false)}><X size={14} /></button>
                     </div>
                   ) : (
                     <button className="save-preset-btn" onClick={() => setShowPresetInput(true)}>
@@ -788,7 +788,7 @@ export default function App() {
       {selectedAlert && (
         <AlertDetailModal
           event={selectedAlert}
-          onClose={() => setSelectedAlertSnapshot(null)}
+          onClose={handleCloseAlert}
           onAcknowledge={handleAcknowledge}
           onResolve={handleResolve}
         />
